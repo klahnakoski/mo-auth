@@ -1,0 +1,52 @@
+{
+    "flask": {
+        "host": "0.0.0.0",
+        "port": 5000,
+        "debug": false,
+        "threaded": true,
+        "processes": 1,
+        //		"ssl_context": "adhoc",
+        "load_dotenv": false
+    },
+    "session": {
+        "db": {
+            "filename": "sessions.sqlite"
+        },
+        "table": "sessions",
+        "cookie": {
+            "name":"annotation_session",
+            "domain": "dev.localhost",
+            "path": "/",
+            "secure": false,
+            "inactive_lifetime": "hour",
+            "max_lifetime": "month",
+            "httponly": false
+        }
+    },
+    "permissions": {
+        "store": "permissions.sqlite"
+    },
+    "auth0": {
+        "domain": "dev-8821kz09.auth0.com",
+        "api.identifier": "https://locahost/query",
+        "scope": "query:send",
+        "endpoints": {
+            "login": "authorize",
+            "logout": "logout",
+            "keep_alive": "ping"
+        }
+    },
+    "constants": {
+        "pyLibrary.env.http.default_headers": {
+            "Referer": "auth0-api"
+        }
+    },
+    "debug": {
+        "trace": true,
+        "log": [
+            {
+                "log_type": "console"
+            }
+        ]
+    }
+}
