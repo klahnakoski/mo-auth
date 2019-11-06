@@ -1,10 +1,9 @@
-from mo_dots import wrap, Data, listwrap
-
+from mo_dots import wrap, Data, listwrap, is_data, FlatList
 from mo_future import first
-
+from mo_kwargs import override
 from mo_logs import Log
 from pyLibrary.sql import SQL_UPDATE, SQL_SET
-from pyLibrary.sql.sqlite import sql_query, sql_create, sql_insert, quote_column, sql_eq
+from pyLibrary.sql.sqlite import sql_query, sql_create, sql_insert, quote_column, sql_eq, Sqlite
 
 ROOT_USER = wrap({"_id": 1})
 VERSION_TABLE = "security.version"
@@ -12,14 +11,22 @@ GROUP_TABLE = "security.groups"
 PERMISSION_TABLE = "security.permissions"
 RESOURCE_TABLE = "security.resources"
 TABLE_OPERATIONS = ["insert", "update", "from"]
+CREATE_TABLE = {"_id": 100, "table": ".", "operation": "insert", "owner": 1}
 
 
 class Permissions:
-    def __init__(self, db):
-        self.db = db
+    @override
+    def __init__(self, db, kwargs):
+        if is_data(db):
+            self.db = Sqlite(db)
+        elif isinstance(db, Sqlite):
+            self.db = db
+        else:
+            Log.error("Bad db parameter")
+
         if not self.db.about(PERMISSION_TABLE):
             self.setup()
-        self.next_id = id_generator(db)
+        self.next_id = id_generator(self.db)
 
     def setup(self):
         with self.db.transaction() as t:
@@ -35,7 +42,7 @@ class Permissions:
                         "group": "TEXT",
                         "email": "TEXT",
                         "issuer": "TEXT",
-                        "email_verified" : "INTEGER",
+                        "email_verified": "INTEGER",
                         "description": "TEXT",
                         "owner": "LONG",
                     },
@@ -89,7 +96,7 @@ class Permissions:
                 sql_insert(
                     RESOURCE_TABLE,
                     [
-                        {"_id": 100, "table": ".", "operation": "insert", "owner": 1},
+                        CREATE_TABLE,
                         {"_id": 101, "table": ".", "operation": "update", "owner": 1},
                         {"_id": 102, "table": ".", "operation": "from", "owner": 1},
                     ],
@@ -131,16 +138,21 @@ class Permissions:
             ]
         )
         self._insert(RESOURCE_TABLE, new_resources)
-        self._insert(
-            PERMISSION_TABLE,
-            [
-                {"user": owner._id, "resource": r._id, "owner": ROOT_USER._id}
-                for r in new_resources
-            ],
-        )
+
+
+
+        with self.db.transaction() as t:
+            t.execute(sql_insert(
+                PERMISSION_TABLE,
+                [
+                    {"user": owner._id, "resource": r._id, "owner": ROOT_USER._id}
+                    for r in new_resources
+                ]
+            ))
 
     def get_or_create_user(self, details):
-        issuer = details.sub
+        details = wrap(details)
+        issuer = details.sub or details.issuer
         email = details.email
         email_verified = details.email_verified
         if not email:
@@ -161,7 +173,12 @@ class Permissions:
             user.email_verified = email_verified
             return user
 
-        new_user = wrap({"email": email, "issuer": issuer, "email_verified": email_verified, "owner": ROOT_USER._id})
+        new_user = wrap({
+            "email": email,
+            "issuer": issuer,
+            "email_verified": email_verified,
+            "owner": ROOT_USER._id
+        })
         self._insert(GROUP_TABLE, new_user)
         return new_user
 
@@ -187,6 +204,9 @@ class Permissions:
         :param owner:
         :return:
         """
+        user = wrap(user)
+        resource = wrap(resource)
+        owner = wrap(owner)
 
         # DOES owner HAVE ACCESS TO resource?
         if not self.verify_allowance(owner, resource):
@@ -198,11 +218,8 @@ class Permissions:
             if any(r.owner == owner for r in allowance):
                 Log.error("already allowed via {{allowance}}", allowance=allowance)
             # ALREADY ALLOWED, BUT MULTIPLE PATHS MAY BE OK
-        self._insert(
-                    PERMISSION_TABLE,
-                    {"user": user._id, "resource": resource._id, "owner": owner._id},
-                )
-
+        with self.db.transaction() as t:
+            t.execute(sql_insert(PERMISSION_TABLE, {"user": user._id, "resource": resource._id, "owner": owner._id}))
 
     def verify_allowance(self, user, resource):
         """
@@ -211,6 +228,8 @@ class Permissions:
         :param resource:
         :return: ALLOWANCE CHAIN
         """
+        user = wrap(user)
+        resource = wrap(resource)
         resources = self.db.query(
             sql_query(
                 {
@@ -225,7 +244,7 @@ class Permissions:
             record = Data(zip(resources.header, r))
             if record.resource == resource._id:
                 if record.owner == ROOT_USER._id:
-                    return [{"resource": resource, "user": user, "owner": ROOT_USER}]
+                    return FlatList(vals=[{"resource": resource, "user": user, "owner": ROOT_USER}])
                 else:
                     cascade = self.verify_allowance(
                         wrap({"_id": record.owner}), resource
@@ -251,12 +270,12 @@ class Permissions:
             sql_query(
                 {
                     "from": RESOURCE_TABLE,
-                    "where": {"eq": {"table": table, "operation": operation}},
+                    "where": {"eq": {"table": table, "operation": operation}}
                 }
             )
         )
 
-        return Data(zip(result.header, first(result.data)))
+        return first(Data(zip(result.header, r)) for r in result.data)
 
     def _insert(self, table, records):
         records = listwrap(records)
