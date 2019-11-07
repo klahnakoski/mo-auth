@@ -10,7 +10,7 @@ from mo_kwargs import override
 from mo_logs import Log
 from mo_math.randoms import Random
 from mo_threads import Till
-from mo_threads.threads import register_thread
+from mo_threads.threads import register_thread, Thread
 from mo_times import Date
 from mo_times.dates import parse, RFC1123
 from pyLibrary.sql import SQL_WHERE, sql_list, SQL_SET, SQL_UPDATE
@@ -24,7 +24,7 @@ from pyLibrary.sql.sqlite import (
     sql_lt,
 )
 
-DEBUG = True
+DEBUG = False
 
 
 def generate_sid():
@@ -32,6 +32,9 @@ def generate_sid():
     GENERATE A UNIQUE SESSION ID
     """
     return Random.base64(40)
+
+
+SINGLTON = None
 
 
 class SqliteSessionInterface(FlaskSessionInterface):
@@ -44,6 +47,10 @@ class SqliteSessionInterface(FlaskSessionInterface):
 
     @override
     def __init__(self, flask_app, db, cookie, table="sessions"):
+        global SINGLTON
+        if SINGLTON:
+            Log.error("Can only handle one session manager at a time")
+        SINGLTON = self
         if is_data(db):
             self.db = Sqlite(db)
         else:
@@ -55,11 +62,12 @@ class SqliteSessionInterface(FlaskSessionInterface):
 
         if not self.db.about(self.table):
             self.setup()
+        Thread.run("session monitor", self.monitor)
 
     def setup_session(self, session):
         session.session_id = generate_sid()
         session.permanent = True
-        session.expires = Date.now() + self.cookie.max_lifetime
+        session.expires = (Date.now() + self.cookie.max_lifetime).unix
 
     def monitor(self, please_stop):
         while not please_stop:
@@ -92,8 +100,8 @@ class SqliteSessionInterface(FlaskSessionInterface):
 
     def make_cookie(self, session):
         now = Date.now()
-        expires = (now + self.cookie.max_lifetime).format(RFC1123)
-        session.expires = expires
+        expires = now + self.cookie.max_lifetime
+        session.expires = expires.unix
         return {
             "name": self.cookie.name,
             "value": session.session_id,
@@ -101,7 +109,7 @@ class SqliteSessionInterface(FlaskSessionInterface):
             "path": self.cookie.path,
             "secure": self.cookie.secure,
             "httponly": self.cookie.httponly,
-            "expires": expires,
+            "expires": expires.format(RFC1123),
             "inactive_lifetime": self.cookie.inactive_lifetime.seconds,
         }
 

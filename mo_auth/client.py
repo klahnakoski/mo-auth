@@ -22,6 +22,7 @@ from mo_times import Date, Timer
 from mo_times.dates import parse
 from pyLibrary.convert import text2QRCode
 
+DEBUG = False
 
 class Auth0Client(object):
     @override
@@ -48,6 +49,8 @@ class Auth0Client(object):
             Data(public_key=self.public_key, timestamp=now),
             self.private_key
         )
+        DEBUG and Log.note("register (unsigned)\n{{request|json}}", request=rsa_crypto.verify(signed, self.public_key))
+        DEBUG and Log.note("register (signed)\n{{request|json}}", request=signed)
         try:
             response = self.session.request(
                 "POST",
@@ -58,6 +61,7 @@ class Auth0Client(object):
             raise Log.error("problem registering device", cause=e)
 
         device = wrap(response.json())
+        DEBUG and Log.note("response:\n{{response}}", response=device)
         device.interval = parse(device.interval).seconds
         expires = Till(till=parse(device.expiry).unix)
         cookie = self.session.cookies.get(self.config.cookie.name)
@@ -82,12 +86,19 @@ class Auth0Client(object):
                     ),
                     self.private_key
                 )
+                url = URL(self.config.service) / self.config.endpoints.status
+                DEBUG and Log.note(
+                    "ping (unsigned) {{url}}\n{{request|json}}",
+                    url=url,
+                    request=rsa_crypto.verify(signed, self.public_key)
+                )
                 response = self.session.request(
                     "POST",
-                    URL(self.config.service) / self.config.endpoints.status,
+                    url,
                     data=value2json(signed)
                 )
                 ping = wrap(response.json())
+                DEBUG and Log.note("response\n{{response|json}}", response=ping)
                 if ping.status == "verified":
                     return self.session
                 if not ping.try_again:
