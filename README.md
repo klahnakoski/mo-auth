@@ -2,7 +2,7 @@
 
 Auth0 authentication with session management for Flask
 
-* You may also want ot read about [Device authentication](https://github.com/klahnakoski/mo-auth/blob/dev/docs/device-flow.md)
+* You may also want to read about [Device authentication](https://github.com/klahnakoski/mo-auth/blob/dev/docs/device-flow.md)
 
 
 ## Overview
