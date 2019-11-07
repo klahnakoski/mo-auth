@@ -118,9 +118,9 @@ The device parameters are:
 * **table** - The name of the file that connects the device to the user
 * **home** - must know where it is, so it can construct URLs for Auth0
 * **endpoints.register** - Used by the device to ask for authentication
-* **endpoints.status** - Used by the device to see if the human has authorized yet
-* **endpoints.login** - Used by the human (with browser) to start login process
-* **endpoints.callback** - Used by human to finish the login process
+* **endpoints.status** - Used by the device to see if the Human has authorized yet
+* **endpoints.login** - Used by the Human (with browser) to start login process
+* **endpoints.callback** - Used by Human to finish the login process
 * **auth0.domain** - This authenticator is a client of Auth0, so it must know the Auth0 domain name
 * **auth0.client_id** - Specific API ID
 * **auth0.redirect_uri** - Full URL to complete the login process 
@@ -129,7 +129,7 @@ The device parameters are:
        
 ### Device Authentication (client side)
 
-This library includes the client-sde module for browserless "devices":
+This library includes the client-side module for browserless "devices":
 
     Auth0Client({
         "service": "http://dev.localhost:3000",
@@ -154,7 +154,7 @@ Parameters are:
 
 ## Usage
 
-This library expects the client to acquire its own Access Token before accessing the protected endpoints.  Please see [the PKCE authorization flow for SPA](https://auth0.com/docs/flows/guides/auth-code-pkce/call-api-auth-code-pkce) for more details. You may also inspect [the example SPA ](https://github.com/klahnakoski/auth0-spa) that works specifically with this library.
+This library expects the Javascript client to acquire its own Access Token before accessing the protected endpoints.  Please see [the PKCE authorization flow for SPA](https://auth0.com/docs/flows/guides/auth-code-pkce/call-api-auth-code-pkce) for more details. You may also inspect [the example SPA ](https://github.com/klahnakoski/auth0-spa) that works specifically with this library.
 
 Once the client has an Access Token, it can be sent to the login endpoint.
 
@@ -214,11 +214,11 @@ Since this format is inhumane, we will only discuss the content of the `data`.  
 }
 ```
 
-This `public_key` will be used by the server to confirm the same Device is making subsequent requests. The `timestamp` ensure the request is valid for a short time.
+This `public_key` will be used by the server to confirm the same Device is making subsequent requests. The `timestamp` ensures the request is valid for only a short time.
 
 **Respond with URL**
 
-When the Authenticator receives a registration request, it will respond with a URL for the human (with a browser) to authenticate.  Other information includes when this registration attempt expires, how often to poll for an update, and as session_id for all subsequent use
+When the Authenticator receives a registration request, it will respond with a URL for the Human (with a browser) to authenticate. Other information includes: When this registration attempt expires, how often to poll for an update, and as session_id for subsequent requests.
 
 ```
 {
@@ -285,11 +285,11 @@ The Authenticator will confirm the `state` exists, and establish a session for t
 
 **Human authentication**
 
-The human will navigate the authentication screens of the Auth0, and the third party. The Authenticator and the Device know nothing about this process.
+The Human will navigate the authentication screens of the Auth0, and the third party. The Authenticator and the Device know nothing about this process.
   
 **Server gets callback**
 
-After the human and third parties have agreed authentication has happened, Auth0 will redirect the browser to the `callback` endpoint of the Authenticator.  Here is an example of the callback
+After the Human and third parties have agreed authentication has happened, Auth0 will redirect the browser to the `callback` endpoint of the Authenticator.  Here is an example of the callback
 
     http://dev.localhost:3000/annotation/device_callback
         ?code  = GM730ri5HpYWA-Zo
