@@ -3,19 +3,18 @@ from flask import request, session, Response, redirect
 from jose import jwt
 
 from mo_dots import Data, wrap, unwrap
-from mo_files import URL
+from mo_files import URL, mimetype
 from mo_future import decorate, first, text
 from mo_json import value2json, json2value
 from mo_kwargs import override
 from mo_logs import Log
-from mo_math import base642bytes, bytes2base64URL, rsa_crypto
+from mo_math import base642bytes, bytes2base64URL, rsa_crypto, crypto
 from mo_math.hashes import sha256
-from mo_math.randoms import Random
 from mo_threads.threads import register_thread
 from mo_times import Date
 from mo_times.dates import parse
 from pyLibrary.env import http
-from pyLibrary.env.flask_wrappers import cors_wrapper, add_flask_rule
+from pyLibrary.env.flask_wrappers import cors_wrapper, add_flask_rule, limit_body
 from pyLibrary.sql import SQL_DELETE, SQL_WHERE, SQL_FROM
 from pyLibrary.sql.sqlite import (
     Sqlite,
@@ -27,20 +26,8 @@ from pyLibrary.sql.sqlite import (
 )
 
 DEBUG = False
+REQUEST_LIMIT = 10_000
 LEEWAY = parse("minute").seconds
-
-
-def get_token_auth_header():
-    """Obtains the Access Token from the Authorization Header
-    """
-    try:
-        auth = request.headers.get("Authorization", None)
-        bearer, token = auth.split()
-        if bearer.lower() == "bearer":
-            return token
-    except Exception as e:
-        pass
-    Log.error('Expecting "Authorization = Bearer <token>" in header')
 
 
 def requires_scope(required_scope):
@@ -133,6 +120,7 @@ class Authenticator(object):
             Log.error("Problem parsing", cause=e)
 
     @register_thread
+    @limit_body(REQUEST_LIMIT)
     @cors_wrapper
     def device_register(self, path=None):
         """
@@ -140,15 +128,15 @@ class Authenticator(object):
         RETURN JSON WITH url FOR LOGIN
         """
         now = Date.now().unix
-        request_body = request.get_data().strip()
+        request_body = request.get_data()
         signed = json2value(request_body.decode("utf8"))
         command = json2value(base642bytes(signed.data).decode("utf8"))
         session.public_key = command.public_key
         rsa_crypto.verify(signed, session.public_key)
 
-        self.session_manager.setup_session(session)
+        self.session_manager.create_session(session)
         session.expires = now + parse("10minute").seconds
-        session.state = bytes2base64URL(Random.bytes(32))
+        session.state = bytes2base64URL(crypto.bytes(32))
 
         with self.device.db.transaction() as t:
             t.execute(
@@ -171,11 +159,12 @@ class Authenticator(object):
         )
 
         return Response(
-            response, headers={"Content-Type": "application/json"}, status=200
+            response, headers={"Content-Type": mimetype.JSON}, status=200
         )
 
     @register_thread
     @cors_wrapper
+    @limit_body(REQUEST_LIMIT)
     def device_status(self, path=None):
         """
         AUTOMATION CAN CALL THIS ENDPOINT TO FIND OUT THE LOGIN STATUS
@@ -187,11 +176,11 @@ class Authenticator(object):
             return Response(
                 '{"try_again":false, "status":"no session id"}', status=401
             )
-        request_body = request.get_data().strip()
+        request_body = request.get_data()
         signed = json2value(request_body.decode("utf8"))
         command = rsa_crypto.verify(signed, session.public_key)
 
-        time_sent = parse(command.timestamp)
+        time_sent = parse(command.timestamp).unix
         if not (now - LEEWAY <= time_sent < now + LEEWAY):
             return Response(
                 '{"try_again":false, "status":"timestamp is not recent"}', status=401
@@ -227,15 +216,15 @@ class Authenticator(object):
         REDIRECT BROWSER TO AUTH0 LOGIN
         """
         state = request.args.get("state")
-        self.session_manager.setup_session(session)
-        session.code_verifier = bytes2base64URL(Random.bytes(32))
+        self.session_manager.create_session(session)
+        session.code_verifier = bytes2base64URL(crypto.bytes(32))
         code_challenge = bytes2base64URL(sha256(session.code_verifier.encode("utf8")))
 
         query = Data(
             client_id=self.device.auth0.client_id,
             redirect_uri=self.device.auth0.redirect_uri,
             state=state,
-            nonce=bytes2base64URL(Random.bytes(32)),
+            nonce=bytes2base64URL(crypto.bytes(32)),
             code_challenge=code_challenge,
             response_type="code",
             code_challenge_method="S256",
@@ -289,8 +278,8 @@ class Authenticator(object):
             "POST",
             str(URL("https://" + self.device.auth0.domain, path="oauth/token")),
             headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
+                "Accept": mimetype.JSON,
+                "Content-Type": mimetype.JSON,
                 # "Referer": str(URL(self.device.auth0.redirect_uri, query={"code": code, "state": state})),
             },
             data=value2json(token_request),
@@ -328,7 +317,7 @@ class Authenticator(object):
         """
         now = Date.now().unix
         try:
-            access_token = get_token_auth_header()
+            access_token = request.headers.get("Authorization", None)
             # if access_token.error:
             #     Log.error("{{error}}: {{error_description}}", access_token)
             if len(access_token.split(".")) == 3:
@@ -336,7 +325,7 @@ class Authenticator(object):
                 session.scope = access_details["scope"]
 
             # ADD TO SESSION
-            self.session_manager.setup_session(session)
+            self.session_manager.create_session(session)
             user_details = self.verify_opaque_token(access_token)
             session.user = self.permissions.get_or_create_user(user_details)
             session.last_used = now
@@ -344,7 +333,8 @@ class Authenticator(object):
             self.markup_user()
 
             return Response(
-                value2json(self.session_manager.make_cookie(session)), status=200
+                value2json(self.session_manager.cookie_data(session)),
+                status=200
             )
         except Exception as e:
             session.user = None
@@ -355,7 +345,7 @@ class Authenticator(object):
     @cors_wrapper
     def keep_alive(self, path=None):
         if not session.session_id:
-            Log.error("Expecting a sesison token")
+            Log.error("Expecting a session token")
         now = Date.now().unix
         session.last_used = now
         return Response(status=200)
@@ -364,7 +354,7 @@ class Authenticator(object):
     @cors_wrapper
     def logout(self, path=None):
         if not session.session_id:
-            Log.error("Expecting a sesison token")
+            Log.error("Expecting a session token")
         session.user = None
         session.last_used = None
         return Response(status=200)

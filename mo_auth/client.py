@@ -24,6 +24,7 @@ from pyLibrary.convert import text2QRCode
 
 DEBUG = False
 
+
 class Auth0Client(object):
     @override
     def __init__(self, kwargs=None):
@@ -64,6 +65,8 @@ class Auth0Client(object):
         DEBUG and Log.note("response:\n{{response}}", response=device)
         device.interval = parse(device.interval).seconds
         expires = Till(till=parse(device.expiry).unix)
+
+        Log.error("Expecting cookie in body")
         cookie = self.session.cookies.get(self.config.cookie.name)
         if not cookie:
             Log.error("expecting a session cookie")
