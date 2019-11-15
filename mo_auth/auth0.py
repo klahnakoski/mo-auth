@@ -4,10 +4,12 @@ from jose import jwt
 
 from mo_dots import Data, wrap, unwrap
 from mo_files import URL
-from mo_future import decorate, first, text_type
+from mo_future import decorate, first, text
 from mo_json import value2json, json2value
 from mo_kwargs import override
-from mo_math import base642bytes, sha256, bytes2base64URL, rsa_crypto
+from mo_logs import Log
+from mo_math import base642bytes, bytes2base64URL, rsa_crypto
+from mo_math.hashes import sha256
 from mo_math.randoms import Random
 from mo_threads.threads import register_thread
 from mo_times import Date
@@ -23,7 +25,6 @@ from pyLibrary.sql.sqlite import (
     sql_query,
     sql_insert,
 )
-from vendor.mo_logs import Log
 
 DEBUG = False
 LEEWAY = parse("minute").seconds
@@ -79,7 +80,7 @@ class Authenticator(object):
                             {"state": "TEXT PRIMARY KEY", "session_id": "TEXT"},
                         )
                     )
-            if device.auth0.redirect_uri != text_type(
+            if device.auth0.redirect_uri != text(
                 URL(device.home, path=device.endpoints.callback)
             ):
                 Log.error("expecting home+endpoints.callback == auth0.redirect_uri")

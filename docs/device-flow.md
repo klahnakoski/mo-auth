@@ -40,12 +40,13 @@ The device parameters are:
 * **table** - The name of the file that connects the device to the user
 * **home** - must know where it is, so it can construct URLs for Auth0
 * **endpoints.register** - Used by the device to ask for authentication
-* **endpoints.status** - Used by the device to see if the Human has authorized yet
-* **endpoints.login** - Used by the Human (with browser) to start login process
-* **endpoints.callback** - Used by Human to finish the login process
+* **endpoints.status** - Used by the device to see if the Browser has authorized yet
+* **endpoints.login** - Used by the Browser to start login process
+* **endpoints.callback** - Used by Browser to finish the login process
 * **auth0.domain** - This authenticator is a client of Auth0, so it must know the Auth0 domain name
 * **auth0.client_id** - Specific API ID
-* **auth0.redirect_uri** - Full URL to complete the login process 
+* **auth0.redirect_uri** - (optional) Full URL to complete the login process 
+* **auth0.redirect_path** - (optional) Path to complete the login process (using window.) 
 * **auth0.audience** - Auth0 audience
 * **auth0.scope** - Auth0 scope
        
@@ -74,15 +75,17 @@ Parameters are:
 * **endpoints.status** - Path used to poll for login status
 
 
-## Device Authentication flow
+# Device Authentication flow
 
-The rest of this documents the interaction between the moving parts. It is best to set `DEBUG=True` in the various modules and watch them log thier actions in detail.
+The rest of this document covers the interaction between the moving parts. It is best to set `DEBUG=True` in the various modules and watch them log thier actions in detail.
 
-The device authentication flow can be split into two parts: the Device portion and the Human portion.
+> [Auth0 has a similar flow](https://auth0.com/docs/flows/concepts/device-auth). Where Auth0's `client_id`, `audience`, and `scope` are not needed here.  Auth0's `device_code` is called the Device Session is this document.
+
+The device authentication flow can be split into two parts: the Device portion and the Browser portion.
 
 ### Register a new device
 
-All requests sent by the Device will be signed with a private RSA key. This means the requests will all look similar:
+All requests sent by the Device will be signed with a private RSA key. This means all requests will look similar, and have this general form:
 
 ```
 {
@@ -91,9 +94,10 @@ All requests sent by the Device will be signed with a private RSA key. This mean
 }
 ```
 
-Since this format is inhumane, we will only discuss the content of the `data`.  In this case, the client wil register the Device:
+Since this format is inhumane, we will only discuss the content of the `data`: Which is base64 encoded JSON.  In this case, the Device client is asking to register itself:
 
 ```
+# The data is base64 encoding of this JSON
 {
     "public_key": {
         "e": 65537,
@@ -103,11 +107,11 @@ Since this format is inhumane, we will only discuss the content of the `data`.  
 }
 ```
 
-This `public_key` will be used by the server to confirm the same Device is making subsequent requests. The `timestamp` ensures the request is valid for only a short time.
+This `public_key` will be used by the Authenticator to confirm the same Device is making subsequent requests. The `timestamp` ensures the request is valid for only a short time.
 
 ### Respond with URL
 
-When the Authenticator receives a registration request, it will respond with a URL for the Human (with a browser) to authenticate. Other information includes: When this registration attempt expires, how often to poll for an update, and as session_id for subsequent requests.
+When the Authenticator receives a registration request, it will respond with a URL for the Browser to authenticate. Other information includes: When this registration attempt expires, how often to poll for an update, and as session_id for subsequent requests.
 
 ```
 {
@@ -120,9 +124,9 @@ When the Authenticator receives a registration request, it will respond with a U
 
 The server will also send `Set Cookie name=<session_id>` in the response header. It is important that this cookie be used for all subsequent calls because it will eventually be authenticated.
  
-### Show URL to Human
+### Show URL for Browser
 
-The Device client will show the URL to the Human so that he can open a browser. This client library will show the URL (for cut-and-paste), and it will show the URL as a QR code so that a mobile phone can be used.
+The Device client will show the URL with the intent it will be opened by a Browser. This client library will show the URL (for cut-and-paste), and it will show the URL as a QR code so that a mobile phone can be used.
 
 ### Request status, repeat
 
@@ -146,9 +150,9 @@ And here is an example response from the Authenticator:
 }
 ```
 
-### Human login
+### Browser login
 
-The Authenticator provides a URL, and the Device client shows that URL to the Human. The following steps are between the Authenticator, Auth0, and the Human.  Meanwhile the Device continues to poll the Authenticator for an update.
+The Authenticator provides a URL, and the Device client shows that URL to the Browser. The following steps are between the Authenticator, Auth0, and the Browser.  Meanwhile the Device continues to poll the Authenticator for an update.
 
 ### Open browser with URL
 
@@ -158,7 +162,7 @@ The URL must be opened in a browser. Either the link can be cut-and-pasted to br
 
 ### Server forwards to Auth0
 
-The Authenticator will confirm the `state` exists, and establish a session for the Human portion of this flow. It will create a `code_verifier` secret, and hang onto it [as per PKCE flow](https://auth0.com/docs/flows/guides/auth-code-pkce/call-api-auth-code-pkce). Here is an example of the redirect URL, with some whitespace added for clarity:
+The Authenticator will confirm the `state` exists, and establish a session for the Browser portion of this flow. It will create a `code_verifier` secret, and hang onto it [as per PKCE flow](https://auth0.com/docs/flows/guides/auth-code-pkce/call-api-auth-code-pkce). Here is an example of the redirect URL, with some whitespace added for clarity:
 
     https://dev-8821kz09.auth0.com/authorize
         ?client_id             = FYlBPbNm7vZi9YPwVFyR7J2TLKrzNtST
@@ -172,13 +176,13 @@ The Authenticator will confirm the `state` exists, and establish a session for t
         &audience              = https%3a%2f%2flocahost%2fquery
         &scope                 = openid%20email%20query%3asend
 
-### Human authentication
+### Browser authentication
 
-The Human will navigate the authentication screens of the Auth0, and the third party. The Authenticator and the Device know nothing about this process.
+The Browser will navigate the authentication screens of the Auth0, and the third party. The Authenticator and the Device know nothing about this process.
   
 ### Server gets callback
 
-After the Human and third parties have agreed authentication has happened, Auth0 will redirect the browser to the `callback` endpoint of the Authenticator.  Here is an example of the callback
+After the Browser and third parties have agreed authentication has happened, Auth0 will redirect the browser to the `callback` endpoint of the Authenticator.  Here is an example of the callback
 
     http://dev.localhost:3000/annotation/device_callback
         ?code  = GM730ri5HpYWA-Zo
