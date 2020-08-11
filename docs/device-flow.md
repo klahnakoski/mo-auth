@@ -36,19 +36,19 @@ The device authentication flow can be enabled by adding `device` properties
      
 The device parameters are:
 
-* **db.filename** - Filename for the SQLite database. Use memory if missing, or null. 
-* **table** - The name of the file that connects the device to the user
-* **home** - must know where it is, so it can construct URLs for Auth0
-* **endpoints.register** - Used by the device to ask for authentication
-* **endpoints.status** - Used by the device to see if the Browser has authorized yet
-* **endpoints.login** - Used by the Browser to start login process
-* **endpoints.callback** - Used by Browser to finish the login process
-* **auth0.domain** - This authenticator is a client of Auth0, so it must know the Auth0 domain name
-* **auth0.client_id** - Specific API ID
-* **auth0.redirect_uri** - (optional) Full URL to complete the login process 
-* **auth0.redirect_path** - (optional) Path to complete the login process (using window.) 
-* **auth0.audience** - Auth0 audience
-* **auth0.scope** - Auth0 scope
+* `db.filename` - Filename for the SQLite database. Use memory if missing, or null. 
+* `table` - The name of the file that connects the device to the user
+* `home` - must know where it is, so it can construct URLs for Auth0
+* `endpoints.register` - Used by the device to ask for authentication
+* `endpoints.status` - Used by the device to see if the Browser has authorized yet
+* `endpoints.login` - Used by the Browser to start login process
+* `endpoints.callback` - Used by Browser to finish the login process
+* `auth0.domain` - This authenticator is a client of Auth0, so it must know the Auth0 domain name
+* `auth0.client_id` - Specific API ID
+* `auth0.redirect_uri` - (optional) Full URL to complete the login process 
+* `auth0.redirect_path` - (optional) Path to complete the login process (using window.) 
+* `auth0.audience` - Auth0 audience
+* `auth0.scope` - Auth0 scope
        
 ### Device Client Configuration
 
@@ -57,9 +57,6 @@ This library includes the client-side module for browserless "devices":
     Auth0Client({
         "service": "http://dev.localhost:3000",
         "rsa": {"bits": 512},
-        "cookie": {
-            "name": "annotation_session"
-        },
         "endpoints": {
             "register": "annotation/device",
             "status": "annotation/device_status"
@@ -68,11 +65,10 @@ This library includes the client-side module for browserless "devices":
 
 Parameters are:
 
-* **service** - URL to the matching service this client will be connecting to
-* **rsa.bits** - Number of bits to use for signing requests
-* **cookie.name** - The name of the cookie used for tracking the session 
-* **endpoints.register** - Path to used to start authentication
-* **endpoints.status** - Path used to poll for login status
+* `service` - URL to the matching service this client will be connecting to
+* `rsa.bits` - Number of bits to use for signing requests
+* `endpoints.register` - Path to used to start authentication
+* `endpoints.status` - Path used to poll for login status
 
 
 # Device Authentication flow

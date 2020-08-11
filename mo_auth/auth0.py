@@ -12,7 +12,7 @@ from mo_math import base642bytes, bytes2base64URL, rsa_crypto, crypto
 from mo_math.hashes import sha256
 from mo_threads.threads import register_thread
 from mo_times import Date
-from mo_times.dates import parse
+from mo_times.dates import parse, RFC1123
 from pyLibrary.env import http
 from pyLibrary.env.flask_wrappers import cors_wrapper, add_flask_rule, limit_body
 from pyLibrary.sql import SQL_DELETE, SQL_WHERE, SQL_FROM
@@ -25,16 +25,9 @@ from pyLibrary.sql.sqlite import (
     sql_insert,
 )
 
-DEBUG = False
+DEBUG = True
 REQUEST_LIMIT = 10_000
 LEEWAY = parse("minute").seconds
-
-
-def requires_scope(required_scope):
-    """
-    Determines if the required scope is present in the Access Token
-    """
-    return required_scope in session.scope.split()
 
 
 class Authenticator(object):
@@ -127,7 +120,8 @@ class Authenticator(object):
         EXPECTING A SIGNED REGISTRATION REQUEST
         RETURN JSON WITH url FOR LOGIN
         """
-        now = Date.now().unix
+        now = Date.now()
+        expires = now + parse(self.device.register.session['max-age'])
         request_body = request.get_data()
         signed = json2value(request_body.decode("utf8"))
         command = json2value(base642bytes(signed.data).decode("utf8"))
@@ -135,7 +129,7 @@ class Authenticator(object):
         rsa_crypto.verify(signed, session.public_key)
 
         self.session_manager.create_session(session)
-        session.expires = now + parse("10minute").seconds
+        session.expires = expires.unix
         session.state = bytes2base64URL(crypto.bytes(32))
 
         with self.device.db.transaction() as t:
@@ -145,11 +139,11 @@ class Authenticator(object):
                     {"state": session.state, "session_id": session.session_id},
                 )
             )
-        response = value2json(
+        body = value2json(
             Data(
                 session_id=session.session_id,
                 interval="5second",
-                expiry=session.expires,
+                expires=session.expires,
                 url=URL(
                     self.device.home,
                     path=self.device.endpoints.login,
@@ -158,9 +152,20 @@ class Authenticator(object):
             )
         )
 
-        return Response(
-            response, headers={"Content-Type": mimetype.JSON}, status=200
+        response = Response(
+            body, headers={"Content-Type": mimetype.JSON}, status=200
         )
+        response.set_cookie(
+            self.device.register.session.name,
+            session.session_id,
+            path=self.device.login.session.path,
+            domain=self.device.login.session.domain,
+            expires=expires.format(RFC1123),
+            secure=self.device.login.session.secure,
+            httponly=self.device.login.session.httponly
+        )
+
+        return response
 
     @register_thread
     @cors_wrapper
@@ -172,25 +177,28 @@ class Authenticator(object):
         ASSOCIATED WITH SESSION
         """
         now = Date.now().unix
-        if not session.session_id:
+        session_id = request.cookies.get(self.device.register.session.name)
+        if not session_id:
             return Response(
                 '{"try_again":false, "status":"no session id"}', status=401
             )
+        device_session = self.session_manager.get_session(session_id)
+
         request_body = request.get_data()
         signed = json2value(request_body.decode("utf8"))
-        command = rsa_crypto.verify(signed, session.public_key)
+        command = rsa_crypto.verify(signed, device_session.public_key)
 
         time_sent = parse(command.timestamp).unix
         if not (now - LEEWAY <= time_sent < now + LEEWAY):
             return Response(
                 '{"try_again":false, "status":"timestamp is not recent"}', status=401
             )
-        if session.expires < now:
+        if device_session.expires < now:
             return Response(
                 '{"try_again":false, "status":"session is too old"}', status=401
             )
-        if session.user:
-            session.public_key = None
+        if device_session.user:
+            device_session.public_key = None
             return Response('{"try_again":false, "status":"verified"}', status=200)
 
         state_info = self.device.db.query(
@@ -198,7 +206,7 @@ class Authenticator(object):
                 {
                     "select": "session_id",
                     "from": self.device.table,
-                    "where": {"eq": {"state": session.state}},
+                    "where": {"eq": {"state": device_session.state}},
                 }
             )
         )
@@ -215,8 +223,11 @@ class Authenticator(object):
         """
         REDIRECT BROWSER TO AUTH0 LOGIN
         """
+        now = Date.now()
+        expires = now + parse(self.device.login.session['max-age'])
         state = request.args.get("state")
         self.session_manager.create_session(session)
+        session.expires = expires.unix
         session.code_verifier = bytes2base64URL(crypto.bytes(32))
         code_challenge = bytes2base64URL(sha256(session.code_verifier.encode("utf8")))
 
@@ -237,7 +248,18 @@ class Authenticator(object):
         )
 
         Log.note("Forward browser to {{url}}", url=url)
-        return redirect(url, code=302)
+
+        response = redirect(url, code=302)
+        response.set_cookie(
+            self.device.login.session.name,
+            session.session_id,
+            path=self.device.login.session.path,
+            domain=self.device.login.session.domain,
+            expires=expires.format(RFC1123),
+            secure=self.device.login.session.secure,
+            httponly=self.device.login.session.httponly
+        )
+        return response
 
     @register_thread
     @cors_wrapper
@@ -246,10 +268,14 @@ class Authenticator(object):
         error = request.args.get("error")
         if error:
             Log.error("You did it wrong")
+        session_id = request.cookies.get(self.device.login.session.name)
+        if not session_id:
+            Log.error("You did it wrong")
+        login_session = self.session_manager.get_session(session_id)
 
         code = request.args.get("code")
         state = request.args.get("state")
-        referer = request.headers.get("Referer")
+
         result = self.device.db.query(
             sql_query(
                 {
@@ -267,7 +293,7 @@ class Authenticator(object):
         token_request = {
             "client_id": self.device.auth0.client_id,
             "redirect_uri": self.device.auth0.redirect_uri,
-            "code_verifier": session.code_verifier,
+            "code_verifier": login_session.code_verifier,
             "code": code,
             "grant_type": "authorization_code",
         }
